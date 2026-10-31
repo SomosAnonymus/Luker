@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Normalizador de Direcciones - Luker</title>
-    <!-- Cargamos la librería para manejar archivos Excel (XLSX / SheetJS) de forma inmediata -->
-    <script src="https://jsdelivr.net"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -122,23 +120,29 @@
     <div class="output-area" id="output-area"></div>
 </div>
 
+<!-- Intentamos cargar la librería desde CDNJS para evitar bloqueos corporativos comunes -->
+<script src="https://cloudflare.com" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<script>
+// --- VERIFICACIÓN Y RESPALDO DE LIBRERÍA ---
+// Si el primer CDN falla o está bloqueado por el firewall, inyectamos UNPKG como alternativa automática
+if (typeof XLSX === 'undefined') {
+    document.write('<script src="https://unpkg.com"><\/script>');
+}
+</script>
+
 <script>
 // --- TRADUCCIÓN EXACTA DE TU LÓGICA DE PYTHON ---
 
 function normalizarCaracteresEspeciales(texto) {
     if (typeof texto !== 'string') return "";
     
-    // Protección de Ñ y ñ
     let protegido = texto.replace(/Ñ/g, '[[MAY_N_TILDE]]').replace(/ñ/g, '[[MIN_N_TILDE]]');
-    
-    // Eliminar caracteres residuales como Â o â
     protegido = protegido.replace(/[Ââ]/g, (m) => m === m.toUpperCase() ? 'A' : 'a');
     
-    // Descomponer Unicode para quitar tildes/diacríticos manteniendo la base
     let nfkd = protegido.normalize('NFKD');
     let sinDiacriticos = nfkd.replace(/[\u0300-\u036f]/g, "");
     
-    // Restaurar Ñ y ñ
     return sinDiacriticos.replace(/\[\[MAY_N_TILDE\]\]/g, 'Ñ').replace(/\[\[MIN_N_TILDE\]\]/g, 'ñ');
 }
 
@@ -148,17 +152,11 @@ function normalizarDireccion(direccion) {
     }
     
     let texto = String(direccion);
-    
-    // 1. Tratamiento de todos los espacios en blanco Unicode
     let textoEspacios = texto.replace(/\s+/g, ' ');
-    
-    // 2. Quitar tildes preservando la Ñ
     let textoNormalizado = normalizarCaracteresEspeciales(textoEspacios);
     
-    // 3. REEMPLAZAR por espacio los caracteres no permitidos
+    // REEMPLAZAR por espacio los caracteres no permitidos
     let textoFiltrado = textoNormalizado.replace(/[^A-Za-zÑñ0-9 #\-]/g, ' ');
-    
-    // 4. Limpieza final de dobles espacios generados por los reemplazos
     let textoFinal = textoFiltrado.replace(/ {2,}/g, ' ');
     return textoFinal.trim();
 }
@@ -178,7 +176,7 @@ dropArea.addEventListener('click', () => fileInput.click());
 
 fileInput.addEventListener('change', function(e) {
     if (e.target.files.length > 0) {
-        archivoCargado = e.target.files[0]; // CORRECCIÓN: Extrae el archivo individual directo
+        archivoCargado = e.target.files[0]; // CORRECCIÓN DEFINITIVA: Extrae el elemento puro
         nombreOriginal = archivoCargado.name;
         fileMsg.innerText = `📄 ${nombreOriginal}`;
         btnProcesar.disabled = false;
@@ -189,6 +187,12 @@ fileInput.addEventListener('change', function(e) {
 btnProcesar.addEventListener('click', function() {
     if (!archivoCargado) return;
     
+    if (typeof XLSX === 'undefined') {
+        outputArea.innerHTML = "<span class='error-msg'>❌ Error: Las librerías de Excel están bloqueadas por el firewall de tu red empresarial. Intenta conectarte desde otra red.</span>";
+        outputArea.style.display = 'block';
+        return;
+    }
+    
     outputArea.innerHTML = "⏳ Procesando datos en tu navegador, espera un momento...";
     outputArea.style.display = 'block';
     
@@ -198,11 +202,10 @@ btnProcesar.addEventListener('click', function() {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, {type: 'array', raw: false});
             
-            // Tomamos la primera hoja del Excel
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             
-            // Convertimos a JSON manteniendo todo como texto puro para proteger formatos
+            // Convertimos a JSON manteniendo todo como texto puro
             const filas = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
             
             if (filas.length === 0) {
@@ -211,20 +214,56 @@ btnProcesar.addEventListener('click', function() {
             }
             
             // Validar si existe la columna requerida
-            const columnas = Object.keys(filas[0]);
-            if (!columnas.includes('Direccion')) {
-                outputArea.innerHTML = `<span class='error-msg'>❌ [ERROR] No se encontró la columna exacta 'Direccion'.</span><br><br>Columnas detectadas: ${columnas.join(', ')}`;
-                return;
+            if (filas.length > 0 && !( 'Direccion' in filas[0] )) {
+                const columnasDetectadas = Object.keys(filas[0]);
+                if (!columnasDetectadas.includes('Direccion')) {
+                    outputArea.innerHTML = `<span class='error-msg'>❌ [ERROR] No se encontró la columna exacta 'Direccion'.</span><br><br>Columnas detectadas: ${columnasDetectadas.join(', ')}`;
+                    return;
+                }
             }
             
-            // Inicializar contadores de tus Estadísticas
             let totalRegistros = filas.length;
             let direccionesVacias = 0;
             let mismasDirecciones = 0;
             let modificadasDirecciones = 0;
             
-            // Procesar fila por fila
             const filasProcesadas = filas.map(fila => {
+                let orig = String(fila['Direccion'] || "").trim();
+                let ajust = normalizarDireccion(fila['Direccion']);
+                
+                fila['Direccion ajustada'] = ajust;
+                
+                if (orig === "" && ajust === "") {
+                    direccionesVacias++;
+                } else if (orig === ajust) {
+                    mismasDirecciones++;
+                } else {
+                    modificadasDirecciones++;
+                }
+                return fila;
+            });
+            
+            // Crear el nuevo Excel resultante
+            const nuevaHoja = XLSX.utils.json_to_sheet(filasProcesadas);
+            const nuevoWorkbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(nuevoWorkbook, nuevaHoja, sheetName);
+            
+            // Generar descarga inmediata
+            let nombreSalida = nombreOriginal.replace(".xlsx", "_ajustado.xlsx");
+            if (nombreSalida === nombreOriginal) nombreSalida = "direcciones_ajustadas.xlsx";
+            
+            XLSX.writeFile(nuevoWorkbook, nombreSalida);
+            
+            // Pintar la tabla de estadísticas exacta que tenías en Python
+            outputArea.innerHTML = `
+                <div style="font-weight:bold; text-align:center; margin-bottom:10px; color:#28a745;">✅ ¡PROCESO COMPLETADO EXITOSAMENTE!</div>
+                <div style="text-align:center; margin-bottom:15px; font-size:12px; color:#777;">El archivo se descargó automáticamente.</div>
+                <strong>=============================================</strong><br>
+                <strong style="display:block; text-align:center;">ESTADÍSTICAS DEL PROCESO</strong>
+                <strong>=============================================</strong>
+                <table class="stats-table">
+                    <tr><td>Nombre del archivo original:</td><td>${nombreOriginal}</td></tr>
+                    <tr><td>Cantidad total de registros:</td><td>${totalRegistros}</td></tr>
                 let orig = String(fila['Direccion'] || "").trim();
                 let ajust = normalizarDireccion(fila['Direccion']);
                 
@@ -263,3 +302,19 @@ btnProcesar.addEventListener('click', function() {
                     <tr><td>Cantidad total de registros:</td><td>${totalRegistros}</td></tr>
                     <tr><td>Direcciones modificadas:</td><td>${modificadasDirecciones}</td></tr>
                     <tr><td>Direcciones sin cambios:</td><td>${mismasDirecciones}</td></tr>
+                    <tr><td>Direcciones vacías o nulas:</td><td>${direccionesVacias}</td></tr>
+                    <tr><td>Nombre del archivo generado:</td><td>${nombreSalida}</td></tr>
+                </table>
+                <strong>=============================================</strong>
+            `;
+            
+        } catch (err) {
+            outputArea.innerHTML = `<span class='error-msg'>❌ Error al procesar el Excel: ${err.message}</span>`;
+        }
+    };
+    reader.readAsArrayBuffer(archivoCargado);
+});
+</script>
+
+</body>
+</html>
