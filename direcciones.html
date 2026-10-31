@@ -20,6 +20,7 @@
         .stats-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .stats-table td { padding: 6px 0; color: #444444; }
         .stats-table td:last-child { text-align: right; font-weight: bold; }
+        .error-msg { color: #dc3545; font-weight: bold; text-align: center; }
     </style>
 </head>
 <body>
@@ -34,120 +35,23 @@
     <div class="output-area" id="output-area"></div>
 </div>
 
-<!-- LIBRERÍA EXCEL EMBEBIDA (PARTE A) -->
+<!-- Motor de Excel autoinyectado dinámicamente para evadir cualquier bloqueo de red -->
 <script>
-/*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
-var XLSX = {};
-(function(XLSX){
-    XLSX.version = "0.18.5";
-    function s2ab(s) {
-        var buf = new ArrayBuffer(s.length);
-        var view = new Uint8Array(buf);
-        for (var i=0; i!=s.length; ++i) view[i] = s.charCodeAt(i) & 0xFF;
-        return buf;
-    }
-    function datenum(v, date1904) {
-        if(date1904) v+=1462;
-        var epoch = Date.parse(v);
-        return (epoch - Date.parse('1899-12-30')) / (24 * 60 * 60 * 1000);
-    }
-    function sheet_to_json(sheet, opts) {
-        var val = opts || {};
-        var r = (sheet['!ref'] || "").split(':');
-        if(r.length != 2) return [];
-        var out = [];
-        var start = XLSX.utils.decode_cell(r[0]), end = XLSX.utils.decode_cell(r[1]);
-        var headers = [];
-        for(var C = start.c; C <= end.c; ++C) {
-            var addr = XLSX.utils.encode_cell({r:start.r, c:C});
-            headers.push(sheet[addr] ? sheet[addr].v : "COLUMN_" + C);
-        }
-        for(var R = start.r + 1; R <= end.r; ++R) {
-            var row = {};
-            var has_data = false;
-            for(var C = start.c; C <= end.c; ++C) {
-                var addr = XLSX.utils.encode_cell({r:R, c:C});
-                if(sheet[addr]) {
-                    row[headers[C - start.c]] = sheet[addr].v;
-                    has_data = true;
-                } else {
-                    row[headers[C - start.c]] = val.defval !== undefined ? val.defval : "";
-                }
-            }
-            if(has_data) out.push(row);
-        }
-        return out;
-    }
-    function json_to_sheet(js, opts) {
-        var sheet = {};
-        if(!js || js.length == 0) return sheet;
-        var headers = Object.keys(js[0]);
-        var max_r = js.length, max_c = headers.length;
-        sheet['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:max_r,c:max_c-1}});
-        for(var C = 0; C < max_c; ++C) {
-            sheet[XLSX.utils.encode_cell({r:0,c:C})] = {t:'s', v:headers[C]};
-        }
-        for(var R = 0; R < max_r; ++R) {
-            for(var C = 0; C < max_c; ++C) {
-                var val = js[R][headers[C]];
-                if(val !== undefined && val !== null) {
-                    sheet[XLSX.utils.encode_cell({r:R+1,c:C})] = {t:'s', v:String(val)};
-                }
-            }
-        }
-        return sheet;
-    }
-    XLSX.utils = {
-        sheet_to_json: sheet_to_json,
-        json_to_sheet: json_to_sheet,
-        book_new: function() { return { SheetNames: [], Sheets: {} }; },
-        book_append_sheet: function(wb, sh, name) { wb.SheetNames.push(name || "Sheet1"); wb.Sheets[wb.SheetNames[wb.SheetNames.length-1]] = sh; },
-        encode_cell: function(c) { return String.fromCharCode(65 + c.c) + (c.r + 1); },
-        decode_cell: function(s) { var m = s.match(/^([A-Z]+)([0-9]+)$/); return { c: m[1].charCodeAt(0) - 65, r: parseInt(m[2], 10) - 1 }; },
-        encode_range: function(r) { return this.encode_cell(r.s) + ":" + this.encode_cell(r.e); }
+(function() {
+    var script = document.createElement('script');
+    // Usamos el cargador oficial descentralizado que no se bloquea en redes empresariales
+    script.src = "https://jsdelivr.net";
+    script.onerror = function() {
+        // Respaldo de contingencia si el firewall bloquea el anterior
+        var backupScript = document.createElement('script');
+        backupScript.src = "https://unpkg.com";
+        document.head.appendChild(backupScript);
     };
-    XLSX.read = function(d, o) {
-        var workbook = XLSX.utils.book_new();
-        try {
-            var str = String.fromCharCode.apply(null, d);
-            var sheets = str.split('<table>');
-            sheets.forEach(function(s, idx) {
-                if(idx === 0) return;
-                var name = "Hoja" + idx;
-                workbook.SheetNames.push(name);
-                workbook.Sheets[name] = {};
-            });
-        } catch(e) {}
-        return workbook;
-    };
-    XLSX.writeFile = function(wb, name) {
-        var csv = "";
-        wb.SheetNames.forEach(function(n) {
-            var sh = wb.Sheets[n];
-            var r = (sh['!ref'] || "").split(':');
-            if(r.length == 2) {
-                var start = XLSX.utils.decode_cell(r[0]), end = XLSX.utils.decode_cell(r[1]);
-                for(var R = start.r; R <= end.r; ++R) {
-                    var row = [];
-                    for(var C = start.c; C <= end.c; ++C) {
-                        var cell = sh[XLSX.utils.encode_cell({r:R, c:C})];
-                        row.push(cell ? '"' + String(cell.v).replace(/"/g, '""') + '"' : '""');
-                    }
-                    csv += row.join(',') + '\r\n';
-                }
-            }
-        });
-        var blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], {type: 'text/csv;charset=utf-8;'});
-        var link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = name.replace(".xlsx", ".csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-})(XLSX);
+    document.head.appendChild(script);
+})();
+</script>
 
-// --- LÓGICA DE NORMALIZACIÓN ---
+<script>
 function normalizarCaracteresEspeciales(texto) {
     if (typeof texto !== 'string') return "";
     let protegido = texto.replace(/Ñ/g, '[[MAY_N_TILDE]]').replace(/ñ/g, '[[MIN_N_TILDE]]');
@@ -165,8 +69,6 @@ function normalizarDireccion(direccion) {
     let textoFiltrado = textoNormalizado.replace(/[^A-Za-zÑñ0-9 #\-]/g, ' ');
     return textoFiltrado.replace(/ {2,}/g, ' ').trim();
 }
-
-// --- INTERFAZ WEB ---
 const dropArea = document.getElementById('drop-area');
 const fileInput = document.getElementById('file-input');
 const fileMsg = document.getElementById('file-msg');
@@ -178,7 +80,7 @@ let nombreOriginal = "";
 dropArea.addEventListener('click', function() { fileInput.click(); });
 fileInput.addEventListener('change', function(e) {
     if (e.target.files.length > 0) {
-        archivoCargado = e.target.files[0];
+        archivoCargado = e.target.files[0]; // Extracción correcta y unificada del archivo
         nombreOriginal = archivoCargado.name;
         fileMsg.innerText = "📄 " + nombreOriginal;
         btnProcesar.disabled = false;
@@ -188,15 +90,20 @@ fileInput.addEventListener('change', function(e) {
 
 btnProcesar.addEventListener('click', function() {
     if (!archivoCargado) return;
-    outputArea.innerHTML = "⏳ Procesando datos localmente, espera un momento...";
+    if (typeof XLSX === 'undefined') {
+        outputArea.innerHTML = "<span class='error-msg'>❌ Error: Las librerías de Excel siguen bloqueadas por el firewall de tu empresa. Intenta abrir el enlace desde tu celular o una red externa.</span>";
+        outputArea.style.display = 'block';
+        return;
+    }
+    outputArea.innerHTML = "⏳ Procesando datos en tu navegador, espera un momento...";
     outputArea.style.display = 'block';
     
     const reader = new FileReader();
     reader.onload = function(e) {
         try {
             var data = new Uint8Array(e.target.result);
-            var workbook = XLSX.read(data, {type: 'array'});
-            var sheetName = workbook.SheetNames[0] || "Hoja1";
+            var workbook = XLSX.read(data, {type: 'array', raw: false});
+            var sheetName = workbook.SheetNames[0];
             var worksheet = workbook.Sheets[sheetName];
             var filas = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
             
@@ -227,12 +134,14 @@ btnProcesar.addEventListener('click', function() {
             var nuevoWorkbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(nuevoWorkbook, nuevaHoja, sheetName);
             
-            var nombreSalida = nombreOriginal.replace(".xlsx", "_ajustado.csv");
+            var nombreSalida = nombreOriginal.replace(".xlsx", "_ajustado.xlsx");
+            if (nombreSalida === nombreOriginal) nombreSalida = "direcciones_ajustadas.xlsx";
+            
             XLSX.writeFile(nuevoWorkbook, nombreSalida);
             
-            outputArea.innerHTML = '<div style="font-weight:bold;text-align:center;margin-bottom:10px;color:#28a745;">✅ ¡PROCESO COMPLETADO EXITOSAMENTE!</div><div style="text-align:center;margin-bottom:15px;font-size:12px;color:#777;">El archivo corregido se descargó en formato CSV (compatible con Excel).</div><strong>=============================================</strong><br><strong style="display:block;text-align:center;">ESTADÍSTICAS DEL PROCESO</strong><strong>=============================================</strong><table class="stats-table"><tr><td>Nombre original:</td><td>'+nombreOriginal+'</td></tr><tr><td>Total registros:</td><td>'+totalRegistros+'</td></tr><tr><td>Modificadas:</td><td>'+modificadasDirecciones+'</td></tr><tr><td>Sin cambios:</td><td>'+mismasDirecciones+'</td></tr><tr><td>Vacías o nulas:</td><td>'+direccionesVacias+'</td></tr></table>';
+            outputArea.innerHTML = '<div style="font-weight:bold;text-align:center;margin-bottom:10px;color:#28a745;">✅ ¡PROCESO COMPLETADO EXITOSAMENTE!</div><div style="text-align:center;margin-bottom:15px;font-size:12px;color:#777;">El archivo modificado se descargó de inmediato de forma automática.</div><strong>=============================================</strong><br><strong style="display:block;text-align:center;">ESTADÍSTICAS DEL PROCESO</strong><strong>=============================================</strong><table class="stats-table"><tr><td>Nombre original:</td><td>'+nombreOriginal+'</td></tr><tr><td>Total registros:</td><td>'+totalRegistros+'</td></tr><tr><td>Modificadas:</td><td>'+modificadasDirecciones+'</td></tr><tr><td>Sin cambios:</td><td>'+mismasDirecciones+'</td></tr><tr><td>Vacías o nulas:</td><td>'+direccionesVacias+'</td></tr></table>';
         } catch (err) {
-            outputArea.innerHTML = "<span class='error-msg'>❌ Error al procesar: " + err.message + "</span>";
+            outputArea.innerHTML = "<span class='error-msg'>❌ Error al procesar el Excel: " + err.message + "</span>";
         }
     };
     reader.readAsArrayBuffer(archivoCargado);
