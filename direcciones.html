@@ -155,7 +155,7 @@ function normalizarDireccion(direccion) {
     // 2. Quitar tildes preservando la Ñ
     let textoNormalizado = normalizarCaracteresEspeciales(textoEspacios);
     
-    // 3. TU MEJORA CRÍTICA: Reemplazar caracteres NO permitidos por un espacio ' '
+    // 3. REEMPLAZAR por espacio los caracteres no permitidos
     let textoFiltrado = textoNormalizado.replace(/[^A-Za-zÑñ0-9 #\-]/g, ' ');
     
     // 4. Limpieza final de dobles espacios generados por los reemplazos
@@ -178,7 +178,7 @@ dropArea.addEventListener('click', () => fileInput.click());
 
 fileInput.addEventListener('change', function(e) {
     if (e.target.files.length > 0) {
-        archivoCargado = e.target.files[0];
+        archivoCargado = e.target.files[0]; // CORRECCIÓN: Extrae el archivo individual directo
         nombreOriginal = archivoCargado.name;
         fileMsg.innerText = `📄 ${nombreOriginal}`;
         btnProcesar.disabled = false;
@@ -263,4 +263,3 @@ btnProcesar.addEventListener('click', function() {
                     <tr><td>Cantidad total de registros:</td><td>${totalRegistros}</td></tr>
                     <tr><td>Direcciones modificadas:</td><td>${modificadasDirecciones}</td></tr>
                     <tr><td>Direcciones sin cambios:</td><td>${mismasDirecciones}</td></tr>
-                    <tr><td>Direcciones vacías o nulas:</td><td>${direccionesVacias}</td></tr>
